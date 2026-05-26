@@ -1,0 +1,27 @@
+# ── Secrets — NEVER commit these ─────────────────────────────────────────────
+config/app.php
+config/credentials.php
+web.config
+
+# ── PowerShell secrets ────────────────────────────────────────────────────────
+# PBIX scanner local config (has client secret and SQL password)
+Scan-PBIX_SharePoint.ps1
+
+# ── Runtime output ────────────────────────────────────────────────────────────
+logs/
+temp/
+*.log
+
+# ── OS / editor noise ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.vscode/
+.idea/
+
+# ── PHP ───────────────────────────────────────────────────────────────────────
+*.php~
+
+# ── PowerShell ────────────────────────────────────────────────────────────────
+*.ps1~
