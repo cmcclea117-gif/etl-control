@@ -3,6 +3,7 @@
 $isAdvanced = $proc['advanced'] ?? false;
 $hasDocs    = !empty($proc['docs']);
 $hasReports = !empty($proc['reports']);
+$isFromDb   = $proc['_from_db'] ?? false;
 ?>
 <div class="process-panel<?= $isAdvanced ? ' advanced-panel' : '' ?>" id="panel-<?= $key ?>">
     <div class="panel-top">
@@ -15,6 +16,10 @@ $hasReports = !empty($proc['reports']);
                 <?php if ($hasDocs || $hasReports): ?>
                 <button class="info-btn" id="infobtn-<?= $key ?>"
                         onclick="toggleDocs('<?= $key ?>')">ⓘ INFO</button>
+                <?php endif; ?>
+                <?php if ($isFromDb): ?>
+                <a href="add_process.php?edit=<?= urlencode($key) ?>"
+                   class="info-btn">✎ EDIT</a>
                 <?php endif; ?>
                 <button class="info-btn edit-doc-btn" id="editbtn-<?= $key ?>"
                         onclick="openDocEditor('<?= $key ?>')"

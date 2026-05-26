@@ -92,6 +92,42 @@ function _ensureSqliteSchema(PDO $pdo): void {
             Report_URL      TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS ETL_Processes (
+            process_key        TEXT PRIMARY KEY,
+            name               TEXT NOT NULL,
+            description        TEXT,
+            log_process_name   TEXT NOT NULL,
+            exec_type          TEXT NOT NULL DEFAULT 'powershell',
+            remote_server      TEXT,
+            remote_script      TEXT,
+            python_exe         TEXT,
+            ssis_server        TEXT,
+            ssis_catalog       TEXT,
+            ssis_folder        TEXT,
+            ssis_project       TEXT,
+            ssis_package       TEXT,
+            agent_server       TEXT,
+            agent_job          TEXT,
+            remote_cmd         TEXT,
+            local_script       TEXT,
+            prod_args          TEXT,
+            test_args          TEXT,
+            task_name          TEXT,
+            expected_seconds   INTEGER DEFAULT 60,
+            poll_timeout_secs  INTEGER DEFAULT 300,
+            advanced           INTEGER DEFAULT 0,
+            step_labels        TEXT,
+            step_thresholds    TEXT,
+            report_name        TEXT,
+            report_url         TEXT,
+            doc_what           TEXT,
+            doc_schedule       TEXT,
+            doc_duration       TEXT,
+            doc_when           TEXT,
+            doc_warnings       TEXT,
+            created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS SQL_View_Division_Map (
             MapID            INTEGER PRIMARY KEY AUTOINCREMENT,
             FoundInDatabase  TEXT,

@@ -363,6 +363,9 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
     <button class="ctrl-btn" onclick="expandAll()">Expand All</button>
     <button class="ctrl-btn" onclick="collapseAll()">Collapse All</button>
     <a class="ctrl-btn blue" href="?export=csv">↓ Export CSV</a>
+    <button class="ctrl-btn" id="refreshViewMapBtn" onclick="refreshViewMap()"
+            style="color:var(--teal);border-color:#134e4a">⟳ Refresh View Map</button>
+    <span id="refreshViewMapStatus" style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-left:4px"></span>
     <div class="results-count" id="resultsCount"></div>
 </div>
 
@@ -704,6 +707,66 @@ function countChildren(data) {
 }
 
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// ── Refresh View Map ─────────────────────────────────────────────────────────
+function refreshViewMap() {
+    const btn    = document.getElementById('refreshViewMapBtn');
+    const status = document.getElementById('refreshViewMapStatus');
+    btn.disabled = true;
+    btn.textContent = '⟳ Refreshing...';
+    status.textContent = '';
+
+    const fd = new FormData();
+    fd.append('process', 'refreshviewmap');
+    fd.append('mode', 'prod');
+
+    fetch('trigger.php', { method: 'POST', body: fd, credentials: 'include' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                status.textContent = 'Error: ' + data.error;
+                status.style.color = 'var(--red)';
+                btn.disabled = false;
+                btn.textContent = '⟳ Refresh View Map';
+                return;
+            }
+            status.textContent = 'Running...';
+            status.style.color = 'var(--amber)';
+            // Poll for completion
+            const pollStart = Date.now();
+            const poll = setInterval(() => {
+                const since = Math.floor(pollStart / 1000) - 5;
+                fetch('status.php?process=refreshviewmap&since=' + since, { credentials: 'include' })
+                    .then(r => r.json())
+                    .then(s => {
+                        if (s.status === 'Success') {
+                            clearInterval(poll);
+                            status.textContent = 'Done! Reloading...';
+                            status.style.color = 'var(--green)';
+                            setTimeout(() => location.reload(), 1200);
+                        } else if (s.status === 'Failed') {
+                            clearInterval(poll);
+                            status.textContent = 'Failed: ' + (s.error_message || 'unknown error');
+                            status.style.color = 'var(--red)';
+                            btn.disabled = false;
+                            btn.textContent = '⟳ Refresh View Map';
+                        } else if ((Date.now() - pollStart) > 120000) {
+                            clearInterval(poll);
+                            status.textContent = 'Timed out';
+                            status.style.color = 'var(--yellow)';
+                            btn.disabled = false;
+                            btn.textContent = '⟳ Refresh View Map';
+                        }
+                    });
+            }, 2000);
+        })
+        .catch(err => {
+            status.textContent = 'Failed: ' + err;
+            status.style.color = 'var(--red)';
+            btn.disabled = false;
+            btn.textContent = '⟳ Refresh View Map';
+        });
+}
 
 buildTree();
 document.querySelectorAll('#rootTree > .tree-item').forEach(li=>{

@@ -57,4 +57,4 @@ Write-Host "  Press Ctrl+C to stop" -ForegroundColor Yellow
 Write-Host ""
 
 Set-Location $appDir
-php -S "$Host`:$Port" -t $appDir
+php -S "$Host`:$Port" $appDir/router.php

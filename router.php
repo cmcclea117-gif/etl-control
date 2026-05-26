@@ -23,6 +23,9 @@ $routes = [
     '/save_docs.php'       => '/save_docs.php',
     '/generate_wrapper.php'=> '/generate_wrapper.php',
     '/log.php'             => '/log.php',
+    '/seed_viewmap.php'    => '/seed_viewmap.php',
+    '/add_process.php'     => '/add_process.php',
+    '/save_process.php'    => '/save_process.php',
 ];
 
 $target = $routes[$uri] ?? null;

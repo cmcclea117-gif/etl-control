@@ -549,7 +549,15 @@ foreach ($processes as $k => $p) {
     </div>
 
     <!-- Standard processes -->
-    <div class="section-header">Standard Processes</div>
+    <div class="section-header" style="justify-content:space-between">
+        Standard Processes
+        <a href="add_process.php"
+           style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--amber);
+                  border:1px solid var(--amber-dim);padding:4px 14px;text-decoration:none;
+                  background:var(--amber-glow);text-transform:uppercase;margin-left:auto">
+            + Add Process
+        </a>
+    </div>
     <div class="processes" id="standardProcesses">
     <?php foreach ($standard as $key => $proc): ?>
         <?php include __DIR__ . '/includes/process_panel.php'; ?>
