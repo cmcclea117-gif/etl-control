@@ -14,8 +14,18 @@ return [
     'app_name'        => 'ETL Control Panel',
     'app_url'         => 'http://localhost:8080',
 
-    // ── SQL Server ────────────────────────────────────────────────────────────
-    // The server hosting your etl_control database.
+    // ── Branding ─────────────────────────────────────────────────────────────
+    // badge: short label shown top-left (2-5 chars works best)
+    // org_name: shown in page header and footer
+    'badge'           => 'ETL',          // e.g. 'RMG', 'ACME', 'ETL'
+    'org_name'        => 'My Org',       // e.g. 'RMG', 'Acme Corp'
+
+    // ── Database driver ──────────────────────────────────────────────────────
+    // 'sqlite'  — local .db file, no SQL Server needed (default for local/SDK use)
+    // 'sqlsrv'  — SQL Server (production); requires credentials.php + sqlsrv extension
+    'db_driver'       => 'sqlite',
+
+    // ── SQL Server (sqlsrv driver only) ───────────────────────────────────────
     'sql_server'      => 'localhost',    // e.g. 'your-sql-server' or '192.168.1.10'
     'database'        => 'etl_control',  // target database name
 

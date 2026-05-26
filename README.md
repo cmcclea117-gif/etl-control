@@ -21,35 +21,35 @@ A config-driven web control panel for ad-hoc execution and monitoring of ETL/ELT
 
 ## Quick Start (Local Mode)
 
-**Requirements:** PHP 8.x, SQL Server (any edition), PowerShell 5.1+
+**Requirements:** Windows, PowerShell 5.1+ — the installer handles everything else.
 
-Install PHP in one line if you don't have it:
-```powershell
-powershell -c "& ([ScriptBlock]::Create((irm 'https://www.php.net/include/download-instructions/windows.ps1'))) -Version 8.5"
-```
-Then close and reopen your terminal so PHP is on your PATH.
+> **Windows tip:** If you downloaded the zip file, right-click it → Properties → Unblock → OK
+> before extracting. This prevents Windows from blocking the batch files.
 
 ```powershell
 # 1. Clone the repo
 git clone https://github.com/your-username/etl-control.git
 cd etl-control
 
-# 2. Configure
-Copy-Item config/app.example.php config/app.php
-Copy-Item config/credentials.example.php config/credentials.php
-# Edit both files — set your SQL Server connection and keep mode = 'local'
-
-# 3. Create the database
-# Open setup.sql in SSMS and run it against your SQL Server as sysadmin.
-# It creates everything in one shot: database, tables, views, procedures, permissions.
-# Estimated time: < 10 seconds.
-
-# 4. Start the server
-.\start-local.ps1
-
-# 5. Open http://localhost:8080
-# Click Run on the Hello World ETL to verify everything is working
+# 2. Run the installer (once)
+install.bat
 ```
+
+The installer will:
+- Download and install PHP 8.3 to `C:\PHP` if not already present
+- Enable the required extensions (`pdo_sqlite`, `sqlite3`, `mbstring`, `openssl`)
+- Create `config/app.php` from the example template
+- Verify everything is working
+
+```powershell
+# 3. Open a NEW terminal window, then start the server
+start-local.bat
+
+# 4. Open http://localhost:8080
+# Click Run on Hello World ETL to verify everything works end-to-end
+```
+
+No SQL Server needed — SQLite is built in and `data/etl_control.db` is created automatically on first run.
 
 ---
 

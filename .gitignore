@@ -25,3 +25,6 @@ desktop.ini
 
 # ── PowerShell ────────────────────────────────────────────────────────────────
 *.ps1~
+
+# SQLite database (auto-created on first run)
+data/*.db
