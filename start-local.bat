@@ -33,17 +33,6 @@ if not exist "%~dp0config\app.php" (
     exit /b 1
 )
 
-:: credentials.php only needed for sqlsrv driver mode — skip check for sqlite
-findstr /i "'db_driver'.*'sqlsrv'" "%~dp0config\app.php" >nul 2>&1
-if %errorlevel% equ 0 (
-    if not exist "%~dp0config\credentials.php" (
-        echo  ERROR: config\credentials.php not found.
-        echo  Copy config\credentials.example.php to config\credentials.php and fill in your values.
-        echo.
-        pause
-        exit /b 1
-    )
-)
 
 echo  Starting PHP built-in server...
 echo  URL:  http://localhost:8080

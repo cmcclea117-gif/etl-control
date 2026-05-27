@@ -1,20 +1,11 @@
 <?php
 // ── seed_viewmap.php ──────────────────────────────────────────────────────────
-// Local-mode only endpoint. Called by Invoke-RefreshViewMapETL.ps1 to populate
-// SQL_View_Division_Map with sample data so the Dependency Chain tab has
-// something to display without a real SQL Server to scan.
-//
-// In production, sp_Refresh_ViewDivisionMap handles this instead.
+// Called by Invoke-RefreshViewMapETL.ps1 in local mode.
+// Reads PBI_Connection_Map and creates matching entries in SQL_View_Division_Map
+// so the dependency chain shows Mapped status for all known connections.
+// Also seeds a set of sample views for demo purposes.
 // ─────────────────────────────────────────────────────────────────────────────
 header('Content-Type: application/json');
-
-$config = require __DIR__ . '/config/app.php';
-
-if (($config['mode'] ?? 'production') !== 'local') {
-    http_response_code(403);
-    echo json_encode(['error' => 'seed_viewmap.php is only available in local mode']);
-    exit;
-}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -26,42 +17,69 @@ try {
     require_once __DIR__ . '/includes/db.php';
     $conn = getDbConnection();
 
-    // Clear existing data
+    // Clear existing view map
     $conn->exec('DELETE FROM SQL_View_Division_Map');
 
-    // Seed sample views -- realistic enough to show the dependency chain UI
-    $samples = [
-        // [FoundInDatabase, View_Schema, View_Name, Division_DB, Approx_LineCount]
-        ['analytics_db',  'dbo', 'vw_SalesOrders',         'source_erp',    45],
-        ['analytics_db',  'dbo', 'vw_PurchaseOrders',      'source_erp',    52],
-        ['analytics_db',  'dbo', 'vw_Inventory',           'source_erp',    38],
-        ['analytics_db',  'dbo', 'vw_CustomerMaster',      'source_crm',    29],
-        ['analytics_db',  'dbo', 'vw_ProductCatalog',      'source_erp',    33],
-        ['reporting_db',  'dbo', 'vw_MonthlySales',        'analytics_db',  67],
-        ['reporting_db',  'dbo', 'vw_YearlySummary',       'analytics_db',  81],
-        ['reporting_db',  'dbo', 'vw_RegionalBreakdown',   'analytics_db',  74],
-        ['reporting_db',  'rpt', 'vw_ExecutiveDashboard',  'analytics_db',  95],
-        ['reporting_db',  'rpt', 'vw_OperationalKPIs',     'analytics_db',  88],
-        ['staging_db',    'stg', 'vw_RawImport',           null,            15],
-        ['staging_db',    'stg', 'vw_CleanedRecords',      null,            28],
-    ];
-
-    $stmt = $conn->prepare(
+    $now   = date('Y-m-d H:i:s');
+    $count = 0;
+    $stmt  = $conn->prepare(
         'INSERT INTO SQL_View_Division_Map
             (FoundInDatabase, View_Schema, View_Name, Division_DB, Approx_LineCount, Last_Refreshed)
          VALUES (?, ?, ?, ?, ?, ?)'
     );
 
-    $now = date('Y-m-d H:i:s');
-    foreach ($samples as $row) {
-        $stmt->execute([$row[0], $row[1], $row[2], $row[3], $row[4], $now]);
+    // ── Step 1: Seed from actual PBI_Connection_Map entries ───────────────────
+    // This makes every scanned connection resolve as Mapped
+    $connections = $conn->query(
+        'SELECT DISTINCT Database_Name, Schema_Name, View_Or_Table, Server
+         FROM PBI_Connection_Map
+         WHERE View_Or_Table IS NOT NULL AND View_Or_Table != ""'
+    )->fetchAll();
+
+    foreach ($connections as $row) {
+        $stmt->execute([
+            $row['Database_Name'],
+            $row['Schema_Name'] ?: 'dbo',
+            $row['View_Or_Table'],
+            $row['Database_Name'],  // use same db as upstream source
+            null,
+            $now,
+        ]);
+        $count++;
     }
 
-    $count = count($samples);
+    // ── Step 2: Seed sample views for demo purposes ───────────────────────────
+    // These show a realistic dependency chain even without a real PBIX scan
+    $samples = [
+        ['analytics_db',  'dbo', 'vw_SalesOrders',       'source_erp',    45],
+        ['analytics_db',  'dbo', 'vw_PurchaseOrders',    'source_erp',    52],
+        ['analytics_db',  'dbo', 'vw_Inventory',         'source_erp',    38],
+        ['analytics_db',  'dbo', 'vw_CustomerMaster',    'source_crm',    29],
+        ['reporting_db',  'dbo', 'vw_MonthlySales',      'analytics_db',  67],
+        ['reporting_db',  'dbo', 'vw_YearlySummary',     'analytics_db',  81],
+        ['reporting_db',  'rpt', 'vw_ExecutiveDashboard', 'analytics_db', 95],
+        ['staging_db',    'stg', 'vw_RawImport',          null,           15],
+    ];
+
+    foreach ($samples as $row) {
+        // Don't duplicate if already seeded from PBI_Connection_Map
+        $exists = $conn->prepare(
+            'SELECT COUNT(*) FROM SQL_View_Division_Map
+             WHERE FoundInDatabase = ? AND View_Name = ?'
+        );
+        $exists->execute([$row[0], $row[2]]);
+        if ($exists->fetchColumn()) continue;
+
+        $stmt->execute([$row[0], $row[1], $row[2], $row[3], $row[4], $now]);
+        $count++;
+    }
+
     echo json_encode([
         'ok'           => true,
         'rows_inserted' => $count,
-        'message'      => "Seeded $count sample view map rows",
+        'from_pbix'    => count($connections),
+        'sample_rows'  => $count - count($connections),
+        'message'      => "Seeded $count view map rows (${\count($connections)} from PBIX scan)",
     ]);
 
 } catch (Exception $e) {

@@ -1,64 +1,88 @@
-# ============================================================
-# Scan-PBIX_SharePoint.ps1
-# Downloads PBIX files from SharePoint via Graph API (app-only auth),
-# extracts TMDL connection info, writes to SQL Server,
-# then fetches Power BI report URLs and updates PBI_Connection_Map.
-#
-# Prerequisites:
-#   pbi-tools.exe installed (desktop version)
-#   Azure AD app registration with:
-#     - Sites.Read.All (application permission, admin consent)
-#     - Files.Read.All (application permission, admin consent)
-#     - Report.Read.All (application permission, admin consent)
-#     - Power BI workspace: add the app as Member
-#
-# Fill in the variables in the CONFIGURE section below.
-# Store this file locally with real values — it is gitignored.
-# ============================================================
+﻿#Requires -Version 5.1
+<#
+.SYNOPSIS
+    PBIX SharePoint Scanner for ETL Control Panel.
 
-# *** CONFIGURE THESE — keep secrets out of source control ***
-$TenantId      = "your-azure-tenant-id"          # Azure AD tenant ID
-$ClientId      = "your-azure-client-id"          # App registration client ID
-$ClientSecret  = "YourClientSecret"              # ← paste your secret here locally
-$SQLUser       = "your_db_user"
-$SQLPass       = "YourSQLPass"
+.DESCRIPTION
+    Downloads PBIX files from a SharePoint document library via Microsoft
+    Graph API, extracts SQL connection info from TMDL using pbi-tools,
+    fetches live Power BI report URLs, and writes everything to the
+    ETL Control Panel app via HTTP (ingest_pbix.php -> SQLite).
 
-# *** SharePoint config ***
+    No SQL Server connection needed. All app data stays in SQLite.
+
+.PREREQUISITES
+    1. Power BI Desktop installed at default location:
+       C:\Program Files\Microsoft Power BI Desktop\
+
+    2. pbi-tools (desktop version) v1.2.0+
+       Download: https://github.com/pbi-tools/pbi-tools/releases
+       Extract to: C:\Tools\pbi-tools-desktop\pbi-tools.exe
+
+    3. Azure AD app registration with application permissions:
+       - Sites.Read.All
+       - Files.Read.All
+       - Report.Read.All
+       Grant admin consent on all three.
+
+    4. Add the app registration as Member of your Power BI workspace.
+
+.NOTES
+    Copy this file to Scan-PBIX_SharePoint.ps1 and fill in the variables.
+    Scan-PBIX_SharePoint.ps1 is gitignored -- never commit it.
+#>
+
+# ── CONFIGURE THESE ──────────────────────────────────────────────────────────
+# Azure AD app registration
+$TenantId     = "your-tenant-id"
+$ClientId     = "your-client-id"
+$ClientSecret = "YourClientSecret"   # Never commit this
+
+# SharePoint settings
 $SharePointSite = "yourtenant.sharepoint.com:/sites/YourSite:"
 $LibraryName    = "Documents"
 $SubFolder      = "Power BI Reports"
+$SPSiteUrl      = "https://yourtenant.sharepoint.com/sites/YourSite"
 
-# *** Tool + SQL config ***
+# ETL Control Panel app URL -- where ingest_pbix.php is running
+$AppUrl = "http://localhost:8080"
+
+# pbi-tools path
 $PBITools    = "C:\Tools\pbi-tools-desktop\pbi-tools.exe"
 $ExtractRoot = "C:\Temp\PBX"
-$SQLServer   = "your-sql-server"
-$SQLDatabase = "etl_control"
-$SPSiteUrl   = "https://yourtenant.sharepoint.com/sites/YourSite"
+# ─────────────────────────────────────────────────────────────────────────────
 
-# ============================================================
-# Log start to ETL_Sync_Log
-# ============================================================
-$startTime  = Get-Date
-$logConnStr = "Server=$SQLServer;Database=$SQLDatabase;User ID=$SQLUser;Password=$SQLPass;TrustServerCertificate=True;"
-$logConn    = New-Object System.Data.SqlClient.SqlConnection($logConnStr)
-$logConn.Open()
-$logCmd = $logConn.CreateCommand()
-$logCmd.CommandText = @"
-INSERT INTO dbo.ETL_Sync_Log (Process_Name, Sync_Date, Status, Start_Time)
-OUTPUT INSERTED.Log_ID
-VALUES ('PBIX SharePoint Scanner', GETDATE(), 'Started', GETDATE())
-"@
-$logId = $logCmd.ExecuteScalar()
-$logConn.Close()
+$startTime = Get-Date
+
+function Write-Log {
+    param([string]$Message, [string]$Color = "White")
+    Write-Host $Message -ForegroundColor $Color
+}
+
+function Invoke-AppEndpoint {
+    param([string]$Endpoint, [hashtable]$Body)
+    try {
+        $result = Invoke-RestMethod -Uri "$AppUrl/$Endpoint" -Method POST -Body $Body -ErrorAction Stop
+        return $result
+    } catch {
+        Write-Log "  App endpoint failed ($Endpoint): $($_.Exception.Message)" "Yellow"
+        return $null
+    }
+}
+
+# ── Log start to ETL_Sync_Log ─────────────────────────────────────────────────
+Invoke-AppEndpoint -Endpoint "log.php" -Body @{
+    process_name = "PBIX SharePoint Scanner"
+    status       = "Started"
+    start_time   = $startTime.ToString("yyyy-MM-dd HH:mm:ss")
+}
 
 foreach ($dir in @($ExtractRoot, "C:\Temp\PBIXFiles")) {
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
 }
 
-# ============================================================
-# Authenticate via client credentials (no user login needed)
-# ============================================================
-Write-Host "Authenticating with Microsoft Graph..." -ForegroundColor Cyan
+# ── Authenticate with Microsoft Graph ────────────────────────────────────────
+Write-Log "Authenticating with Microsoft Graph..." "Cyan"
 
 $tokenUrl  = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
 $tokenBody = @{
@@ -70,41 +94,27 @@ $tokenBody = @{
 
 $tokenResponse = Invoke-RestMethod -Uri $tokenUrl -Method POST -Body $tokenBody
 $accessToken   = $tokenResponse.access_token
+$headers       = @{ Authorization = "Bearer $accessToken"; Accept = "application/json" }
+Write-Log "Authenticated." "Green"
 
-$headers = @{
-    Authorization = "Bearer $accessToken"
-    Accept        = "application/json"
-}
+# ── Get SharePoint site and drive ─────────────────────────────────────────────
+$siteId = (Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/sites/$SharePointSite" -Headers $headers).id
 
-Write-Host "Authenticated." -ForegroundColor Green
+$drive = (Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/sites/$siteId/drives" -Headers $headers).value |
+         Where-Object { $_.name -eq $LibraryName }
 
-# ============================================================
-# Get SharePoint site and drive
-# ============================================================
-$siteResponse = Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/sites/$SharePointSite" -Headers $headers
-$siteId       = $siteResponse.id
+if (-not $drive) { Write-Error "Library '$LibraryName' not found."; exit 1 }
 
-$drivesResponse = Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/sites/$siteId/drives" -Headers $headers
-$drive          = $drivesResponse.value | Where-Object { $_.name -eq $LibraryName }
+$pbixFiles = (Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/drives/$($drive.id)/items/root:/$($SubFolder):/children" -Headers $headers).value |
+             Where-Object { $_.name -like "*.pbix" }
 
-if (-not $drive) {
-    Write-Error "Library '$LibraryName' not found on site."
-    exit 1
-}
+Write-Log "Found $($pbixFiles.Count) PBIX file(s) in SharePoint" "Cyan"
 
-$driveId = $drive.id
+# ── Clear previous scan ───────────────────────────────────────────────────────
+Invoke-AppEndpoint -Endpoint "ingest_pbix.php" -Body @{ action = "clear" }
+Write-Log "PBI_Connection_Map cleared." "Yellow"
 
-# Get PBIX files from subfolder
-$folderPath    = "root:/$SubFolder"
-$itemsUrl      = "https://graph.microsoft.com/v1.0/drives/$driveId/items/$($folderPath):/children"
-$itemsResponse = Invoke-RestMethod -Uri $itemsUrl -Headers $headers
-$pbixFiles     = $itemsResponse.value | Where-Object { $_.name -like "*.pbix" }
-
-Write-Host "Found $($pbixFiles.Count) PBIX file(s) in SharePoint" -ForegroundColor Cyan
-
-# ============================================================
-# Helper functions
-# ============================================================
+# ── Helper: Parse TMDL files ──────────────────────────────────────────────────
 function Parse-ExtractedTMDL {
     param ([string]$ExtractDir, [string]$ReportName, [string]$SPPath)
     $records   = @()
@@ -163,10 +173,6 @@ function Parse-ExtractedTMDL {
         $modeMatch = [regex]::Match($content, 'mode:\s*(\w+)')
         $mode = if ($modeMatch.Success) { $modeMatch.Groups[1].Value } else { "" }
 
-        # Add your known database names here to prevent false-positive schema matches
-        $knownDatabases = @('etl_control', 'master', 'msdb', 'tempdb')
-        if ($knownDatabases -contains $schema.ToLower()) { continue }
-
         $records += [PSCustomObject]@{
             Report_File     = $ReportName
             SharePoint_Path = $SPPath
@@ -181,172 +187,107 @@ function Parse-ExtractedTMDL {
     return $records
 }
 
-function Write-ToSQL {
-    param ([array]$Records)
-    if (-not $Records -or $Records.Count -eq 0) { return }
-
-    $connStr = "Server=$SQLServer;Database=$SQLDatabase;User ID=$SQLUser;Password=$SQLPass;TrustServerCertificate=True;"
-    $conn    = New-Object System.Data.SqlClient.SqlConnection($connStr)
-    $conn.Open()
-
-    foreach ($r in $Records) {
-        $cmd = $conn.CreateCommand()
-        $cmd.CommandText = @"
-INSERT INTO dbo.PBI_Connection_Map
-    (Report_File, SharePoint_Path, SharePoint_Site, Server,
-     Database_Name, Schema_Name, View_Or_Table, Import_Mode)
-VALUES
-    (@ReportFile, @SPPath, @SPSite, @Server,
-     @Database, @Schema, @ViewOrTable, @Mode)
-"@
-        $cmd.Parameters.AddWithValue("@ReportFile",  [string]$r.Report_File)     | Out-Null
-        $cmd.Parameters.AddWithValue("@SPPath",      [string]$r.SharePoint_Path) | Out-Null
-        $cmd.Parameters.AddWithValue("@SPSite",      [string]$r.SharePoint_Site) | Out-Null
-        $cmd.Parameters.AddWithValue("@Server",      [string]$r.Server)          | Out-Null
-        $cmd.Parameters.AddWithValue("@Database",    [string]$r.Database_Name)   | Out-Null
-        $cmd.Parameters.AddWithValue("@Schema",      [string]$r.Schema_Name)     | Out-Null
-        $cmd.Parameters.AddWithValue("@ViewOrTable", [string]$r.View_Or_Table)   | Out-Null
-        $cmd.Parameters.AddWithValue("@Mode",        [string]$r.Import_Mode)     | Out-Null
-        $cmd.ExecuteNonQuery() | Out-Null
-    }
-    $conn.Close()
-}
-
-# ============================================================
-# Clear previous scan
-# ============================================================
-$connStr   = "Server=$SQLServer;Database=$SQLDatabase;User ID=$SQLUser;Password=$SQLPass;TrustServerCertificate=True;"
-$clearConn = New-Object System.Data.SqlClient.SqlConnection($connStr)
-$clearConn.Open()
-$clearCmd = $clearConn.CreateCommand()
-$clearCmd.CommandText = "DELETE FROM dbo.PBI_Connection_Map"
-$clearCmd.ExecuteNonQuery() | Out-Null
-$clearConn.Close()
-Write-Host "PBI_Connection_Map cleared." -ForegroundColor Yellow
-
-# ============================================================
-# Process each PBIX file
-# ============================================================
+# ── Process each PBIX file ────────────────────────────────────────────────────
 $i            = 0
 $totalRecords = 0
 
 foreach ($item in $pbixFiles) {
     $i++
-    Write-Host "[$i/$($pbixFiles.Count)] $($item.name)" -ForegroundColor White
+    Write-Log "[$i/$($pbixFiles.Count)] $($item.name)" "White"
 
     $localPath  = "C:\Temp\PBIXFiles\$($item.name)"
     $safeName   = [System.IO.Path]::GetFileNameWithoutExtension($item.name) -replace '[\\/:*?"<>|]', '_'
     $extractDir = "$ExtractRoot\$safeName"
 
+    # Download
     try {
-        $downloadUrl = "https://graph.microsoft.com/v1.0/drives/$driveId/items/$($item.id)/content"
-        Invoke-RestMethod -Uri $downloadUrl -Headers $headers -OutFile $localPath
+        Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/drives/$($drive.id)/items/$($item.id)/content" `
+                          -Headers $headers -OutFile $localPath
     } catch {
-        Write-Warning "  Download failed: $_"
+        Write-Log "  Download failed: $_" "Yellow"
         continue
     }
 
+    # Extract TMDL
     if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue }
-
     try {
         & $PBITools extract "$localPath" -extractFolder "$extractDir" -modelSerialization Tmdl 2>&1 | Out-Null
     } catch {
-        Write-Warning "  pbi-tools failed: $_"
+        Write-Log "  pbi-tools failed: $_" "Yellow"
         Remove-Item $localPath -Force -ErrorAction SilentlyContinue
         continue
     }
 
-    $spPath   = if ($item.parentReference.path) { $item.parentReference.path } else { "" }
-    $records  = Parse-ExtractedTMDL -ExtractDir $extractDir -ReportName $item.name -SPPath $spPath
-    $recCount = @($records).Count
-    Write-Host "  → $recCount connection(s) found" -ForegroundColor $(if ($recCount -gt 0) {"Green"} else {"DarkGray"})
+    # Parse and POST each connection row to the app
+    $spPath  = if ($item.parentReference.path) { $item.parentReference.path } else { "" }
+    $records = Parse-ExtractedTMDL -ExtractDir $extractDir -ReportName $item.name -SPPath $spPath
 
-    Write-ToSQL -Records $records
-    $totalRecords += $records.Count
+    foreach ($r in $records) {
+        Invoke-AppEndpoint -Endpoint "ingest_pbix.php" -Body @{
+            action          = "insert"
+            report_file     = $r.Report_File
+            sharepoint_path = $r.SharePoint_Path
+            sharepoint_site = $r.SharePoint_Site
+            server          = $r.Server
+            database_name   = $r.Database_Name
+            schema_name     = $r.Schema_Name
+            view_or_table   = $r.View_Or_Table
+            import_mode     = $r.Import_Mode
+        }
+    }
+
+    $recCount = @($records).Count
+    Write-Log "  -> $recCount connection(s) found" $(if ($recCount -gt 0) { "Green" } else { "DarkGray" })
+    $totalRecords += $recCount
 
     Remove-Item $localPath  -Force -ErrorAction SilentlyContinue
     Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# ============================================================
-# Fetch Power BI report URLs and update PBI_Connection_Map
-# ============================================================
-Write-Host "Fetching Power BI report URLs..." -ForegroundColor Cyan
-
+# ── Fetch Power BI report URLs and update via app ─────────────────────────────
+Write-Log "Fetching Power BI report URLs..." "Cyan"
 try {
-    $pbiTokenBody = @{
+    $pbiToken = (Invoke-RestMethod -Uri $tokenUrl -Method POST -Body @{
         grant_type    = "client_credentials"
         client_id     = $ClientId
         client_secret = $ClientSecret
         scope         = "https://analysis.windows.net/powerbi/api/.default"
-    }
-    $pbiTokenResponse = Invoke-RestMethod -Uri $tokenUrl -Method POST -Body $pbiTokenBody
-    $pbiToken         = $pbiTokenResponse.access_token
+    }).access_token
 
-    $pbiHeaders = @{ Authorization = "Bearer $pbiToken"; Accept = "application/json" }
+    $pbiHeaders  = @{ Authorization = "Bearer $pbiToken"; Accept = "application/json" }
+    $workspaces  = (Invoke-RestMethod -Uri "https://api.powerbi.com/v1.0/myorg/groups" -Headers $pbiHeaders).value
+    $urlsUpdated = 0
 
-    $reportUrlMap = @{}
-    $workspacesResponse = Invoke-RestMethod -Uri "https://api.powerbi.com/v1.0/myorg/groups" -Headers $pbiHeaders
-
-    foreach ($workspace in $workspacesResponse.value) {
+    foreach ($ws in $workspaces) {
         try {
-            $reportsResponse = Invoke-RestMethod `
-                -Uri     "https://api.powerbi.com/v1.0/myorg/groups/$($workspace.id)/reports" `
-                -Headers $pbiHeaders
-            foreach ($report in $reportsResponse.value) {
-                $key = $report.name.ToLower()
-                if (-not $reportUrlMap.ContainsKey($key)) { $reportUrlMap[$key] = $report.webUrl }
+            $reports = (Invoke-RestMethod -Uri "https://api.powerbi.com/v1.0/myorg/groups/$($ws.id)/reports" -Headers $pbiHeaders).value
+            foreach ($report in $reports) {
+                $result = Invoke-AppEndpoint -Endpoint "ingest_pbix.php" -Body @{
+                    action      = "update_url"
+                    report_file = $report.name
+                    report_url  = $report.webUrl
+                }
+                if ($result -and $result.rows -gt 0) { $urlsUpdated += $result.rows }
             }
         } catch {
-            Write-Warning "  Could not fetch reports for workspace '$($workspace.name)': $_"
+            Write-Log "  Could not fetch reports for workspace '$($ws.name)': $_" "Yellow"
         }
     }
-
-    Write-Host "  Found $($reportUrlMap.Count) report URL(s) across $($workspacesResponse.value.Count) workspace(s)" -ForegroundColor Green
-
-    $urlConn = New-Object System.Data.SqlClient.SqlConnection($connStr)
-    $urlConn.Open()
-    $urlUpdated = 0
-    foreach ($key in $reportUrlMap.Keys) {
-        $urlCmd = $urlConn.CreateCommand()
-        $urlCmd.CommandText = "UPDATE dbo.PBI_Connection_Map SET Report_URL = @Url WHERE LOWER(REPLACE(Report_File, '.pbix', '')) = @Name"
-        $urlCmd.Parameters.AddWithValue("@Url",  $reportUrlMap[$key]) | Out-Null
-        $urlCmd.Parameters.AddWithValue("@Name", $key)                | Out-Null
-        $urlUpdated += $urlCmd.ExecuteNonQuery()
-    }
-    $urlConn.Close()
-    Write-Host "  Updated $urlUpdated row(s) with report URLs" -ForegroundColor Green
-
+    Write-Log "  Updated $urlsUpdated row(s) with report URLs" "Green"
 } catch {
-    Write-Warning "Power BI URL fetch failed (non-fatal): $_"
-    Write-Warning "Check that Report.Read.All is granted on the Azure app and the app is a workspace Member."
+    Write-Log "  Power BI URL fetch failed (non-fatal): $_" "Yellow"
 }
 
-# ============================================================
-# Log completion to ETL_Sync_Log
-# ============================================================
-$endTime = Get-Date
-$status  = if ($totalRecords -lt 50) { "Warning" } else { "Success" }
-$errMsg  = if ($totalRecords -lt 50) { "Only $totalRecords records written — check your PBIX library." } else { $null }
+# ── Log completion ────────────────────────────────────────────────────────────
+$status = if ($totalRecords -eq 0) { "Warning" } else { "Success" }
+$errMsg = if ($totalRecords -eq 0) { "No connections found -- check your PBIX files have SQL Server connections" } else { $null }
 
-$logConn = New-Object System.Data.SqlClient.SqlConnection($logConnStr)
-$logConn.Open()
-$logCmd = $logConn.CreateCommand()
-$logCmd.CommandText = @"
-UPDATE dbo.ETL_Sync_Log
-SET Status = @Status, Record_Count = @Count, End_Time = @EndTime, Error_Message = @ErrMsg
-WHERE Log_ID = @LogId
-"@
-$logCmd.Parameters.AddWithValue("@Status",  $status)       | Out-Null
-$logCmd.Parameters.AddWithValue("@Count",   $totalRecords) | Out-Null
-$logCmd.Parameters.AddWithValue("@EndTime", $endTime)      | Out-Null
-if ($errMsg) {
-    $logCmd.Parameters.AddWithValue("@ErrMsg", $errMsg) | Out-Null
-} else {
-    $logCmd.Parameters.AddWithValue("@ErrMsg", [DBNull]::Value) | Out-Null
+Invoke-AppEndpoint -Endpoint "log.php" -Body @{
+    process_name  = "PBIX SharePoint Scanner"
+    status        = $status
+    record_count  = $totalRecords
+    error_message = $errMsg
+    start_time    = $startTime.ToString("yyyy-MM-dd HH:mm:ss")
 }
-$logCmd.Parameters.AddWithValue("@LogId", $logId) | Out-Null
-$logCmd.ExecuteNonQuery() | Out-Null
-$logConn.Close()
 
-Write-Host "Scan complete. $totalRecords connection(s) written to $SQLDatabase.dbo.PBI_Connection_Map" -ForegroundColor Cyan
+Write-Log "Scan complete. $totalRecords connection(s) written to PBI_Connection_Map." "Cyan"

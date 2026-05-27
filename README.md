@@ -226,6 +226,63 @@ GRANT EXECUTE ON dbo.sp_Refresh_ViewDivisionMap            TO [your_db_user];
 
 ---
 
+## PBIX Scanner Setup
+
+The PBIX scanner (`Scan-PBIX_SharePoint.example.ps1`) requires two prerequisites
+before it can extract connection info from Power BI reports.
+
+### 1. Power BI Desktop
+
+Required by pbi-tools to read .pbix files. Install from:
+https://www.microsoft.com/en-us/download/details.aspx?id=58494
+
+Must be installed at the default location:
+`C:\Program Files\Microsoft Power BI Desktop\`
+
+### 2. pbi-tools (desktop version)
+
+The fully-featured version that works alongside Power BI Desktop.
+Latest release: v1.2.0 — https://github.com/pbi-tools/pbi-tools/releases
+
+```powershell
+# Download and extract to C:\Tools\pbi-tools-desktop\
+Invoke-WebRequest -Uri "https://github.com/pbi-tools/pbi-tools/releases/download/1.2.0/pbi-tools.1.2.0.zip" -OutFile "$env:TEMP\pbi-tools.zip"
+Expand-Archive -Path "$env:TEMP\pbi-tools.zip" -DestinationPath "C:\Tools\pbi-tools-desktop" -Force
+# Verify:
+& "C:\Tools\pbi-tools-desktop\pbi-tools.exe" info
+```
+
+### 3. Azure App Registration
+
+Create an app registration in Entra ID with these **application** permissions (not delegated):
+- `Sites.Read.All` — to access SharePoint
+- `Files.Read.All` — to download PBIX files
+- `Report.Read.All` — to fetch Power BI report URLs
+
+Grant admin consent on all three, then create a client secret.
+
+### 4. Power BI Workspace
+
+Add the app registration as a **Member** of any Power BI workspace containing
+the reports you want to scan. This is required for the URL lookup step.
+
+### 5. Configure the scanner
+
+```powershell
+# Copy the example file and fill in your values
+Copy-Item Scan-PBIX_SharePoint.example.ps1 Scan-PBIX_SharePoint.ps1
+# Edit Scan-PBIX_SharePoint.ps1 — fill in:
+#   $TenantId, $ClientId, $ClientSecret
+#   $SQLUser, $SQLPass
+#   $SharePointSite, $LibraryName, $SubFolder
+#   $SQLServer, $SQLDatabase
+```
+
+> **Never commit `Scan-PBIX_SharePoint.ps1`** — it contains your client secret.
+> It is gitignored by default.
+
+---
+
 ## Dependency Chain
 
 The Dependency Chain tab maps Power BI reports → SQL views → source databases.
