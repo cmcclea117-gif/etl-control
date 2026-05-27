@@ -47,6 +47,14 @@ switch ($execType) {
         $remoteServer = trim($p['py_remote_server'] ?? '');
         $remoteScript = trim($p['py_remote_script'] ?? '');
         break;
+    case 'r':
+        $remoteServer = trim($p['r_remote_server'] ?? '');
+        $remoteScript = trim($p['r_remote_script'] ?? '');
+        break;
+    case 'node':
+        $remoteServer = trim($p['node_remote_server'] ?? '');
+        $remoteScript = trim($p['node_remote_script'] ?? '');
+        break;
     case 'cmd':
         $remoteServer = trim($p['cmd_remote_server'] ?? '');
         break;

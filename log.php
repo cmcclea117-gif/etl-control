@@ -31,7 +31,9 @@ $processName  = trim($_POST['process_name']  ?? '');
 $status       = trim($_POST['status']        ?? '');
 $recordCount  = isset($_POST['record_count'])  ? (int)$_POST['record_count']  : null;
 $errorMessage = trim($_POST['error_message'] ?? '') ?: null;
-$startTime    = trim($_POST['start_time']    ?? '') ?: date('Y-m-d H:i:s');
+$startTimeRaw = trim($_POST['start_time'] ?? '');
+// Normalize to Y-m-d H:i:s regardless of format (handles ISO 8601 from Node/Python)
+$startTime    = $startTimeRaw ? date('Y-m-d H:i:s', strtotime($startTimeRaw)) : date('Y-m-d H:i:s');
 
 if (!$processName || !$status) {
     http_response_code(400);

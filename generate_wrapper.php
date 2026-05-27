@@ -49,79 +49,170 @@ PS;
         $ssisFolder  = $proc['ssis_folder']  ?? 'MyFolder';
         $ssisProject = $proc['ssis_project'] ?? 'MyProject';
         $ssisPackage = $proc['ssis_package'] ?? 'MyPackage.dtsx';
+        $appUrl      = rtrim($config['app_ingestion_url'] ?? 'http://localhost:8080', '/');
+        $logName     = $proc['log_process_name'];
         $innerBlock = <<<PS
-        \$conn = New-Object System.Data.SqlClient.SqlConnection(
-            "Server=$ssisServer;Database=$ssisCatalog;Integrated Security=True;TrustServerCertificate=True;"
-        )
-        \$conn.Open()
-        \$cmd = \$conn.CreateCommand()
-        \$cmd.CommandText = @"
+        \$ssisServer  = "$ssisServer"
+        \$ssisCatalog = "$ssisCatalog"
+        \$ssisFolder  = "$ssisFolder"
+        \$ssisProject = "$ssisProject"
+        \$ssisPackage = "$ssisPackage"
+        \$logUrl      = "$appUrl/log.php"
+        \$logName     = "$logName"
+        \$startTime   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+        function Write-AppLog {
+            param([string]\$Status, [int]\$RecordCount = 0, [string]\$ErrorMessage = \$null)
+            try {
+                \$body = @{
+                    process_name  = \$logName
+                    status        = \$Status
+                    record_count  = \$RecordCount
+                    start_time    = \$startTime
+                }
+                if (\$ErrorMessage) { \$body.error_message = \$ErrorMessage }
+                Invoke-RestMethod -Uri \$logUrl -Method POST -Body \$body -ErrorAction Stop | Out-Null
+                Write-Host "Logged '\$Status' to \$logUrl"
+            } catch {
+                Write-Warning "Log POST failed (non-fatal): \$_"
+            }
+        }
+
+        # Log started
+        Write-AppLog -Status "Started"
+
+        try {
+            \$conn = New-Object System.Data.SqlClient.SqlConnection(
+                "Server=\$ssisServer;Database=\$ssisCatalog;Integrated Security=True;TrustServerCertificate=True;")
+            \$conn.Open()
+            \$cmd = \$conn.CreateCommand()
+            \$cmd.CommandText = @"
 DECLARE @exec_id BIGINT
 EXEC [SSISDB].[catalog].[create_execution]
-    @folder_name  = N'$ssisFolder',
-    @project_name = N'$ssisProject',
-    @package_name = N'$ssisPackage',
+    @folder_name  = N'\$ssisFolder',
+    @project_name = N'\$ssisProject',
+    @package_name = N'\$ssisPackage',
     @execution_id = @exec_id OUTPUT
 EXEC [SSISDB].[catalog].[start_execution] @exec_id
 SELECT @exec_id AS execution_id
 "@
-        \$executionId = \$cmd.ExecuteScalar()
-        \$conn.Close()
-        Write-Host "SSIS package started. Execution ID: \$executionId"
+            \$executionId = \$cmd.ExecuteScalar()
+            Write-Host "SSIS package started. Execution ID: \$executionId"
 
-        # Wait for completion
-        \$maxWait = 300; \$waited = 0
-        do {
-            Start-Sleep -Seconds 5; \$waited += 5
-            \$conn.Open()
-            \$statusCmd = \$conn.CreateCommand()
-            \$statusCmd.CommandText = "SELECT [status] FROM [SSISDB].[catalog].[executions] WHERE execution_id = \$executionId"
-            \$status = \$statusCmd.ExecuteScalar()
+            # Poll for completion
+            \$maxWait = 300; \$waited = 0; \$status = 0
+            do {
+                Start-Sleep -Seconds 5; \$waited += 5
+                \$statusCmd = \$conn.CreateCommand()
+                \$statusCmd.CommandText = "SELECT [status] FROM [SSISDB].[catalog].[executions] WHERE execution_id = \$executionId"
+                \$status = \$statusCmd.ExecuteScalar()
+                Write-Host "SSIS status: \$status (\$waited s elapsed)"
+            } while (\$status -notin @(3, 4, 6, 7) -and \$waited -lt \$maxWait)
+
             \$conn.Close()
-            Write-Host "SSIS status: \$status"
-        } while (\$status -notin @(3, 4, 6, 7) -and \$waited -lt \$maxWait)
 
-        if (\$status -ne 3) { throw "SSIS package failed with status \$status" }
-        Write-Host "SSIS package completed successfully"
+            if (\$status -eq 3) {
+                Write-Host "SSIS package completed successfully"
+                Write-AppLog -Status "Success" -RecordCount 1
+            } else {
+                throw "SSIS package failed with status \$status"
+            }
+
+        } catch {
+            \$errMsg = \$_.Exception.Message
+            Write-Host "SSIS execution failed: \$errMsg"
+            if (\$conn -and \$conn.State -eq 'Open') { \$conn.Close() }
+            Write-AppLog -Status "Failed" -ErrorMessage \$errMsg
+            throw
+        }
 PS;
         break;
 
     case 'sqlagent':
         $agentServer = $proc['agent_server'] ?? $remoteServer;
         $agentJob    = $proc['agent_job']    ?? 'My SQL Agent Job';
+        $appUrl      = rtrim($config['app_ingestion_url'] ?? 'http://localhost:8080', '/');
+        $logName     = $proc['log_process_name'];
         $innerBlock = <<<PS
         \$agentServer = "$agentServer"
         \$jobName     = "$agentJob"
+        \$logUrl      = "$appUrl/log.php"
+        \$logName     = "$logName"
+        \$startTime   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
-        # Start the SQL Agent job
-        Invoke-Sqlcmd -ServerInstance \$agentServer -TrustServerCertificate `
-            -Query "EXEC msdb.dbo.sp_start_job N'\$jobName'"
-        Write-Host "SQL Agent job started: \$jobName"
+        function Write-AppLog {
+            param([string]\$Status, [int]\$RecordCount = 0, [string]\$ErrorMessage = \$null)
+            try {
+                \$body = @{
+                    process_name  = \$logName
+                    status        = \$Status
+                    record_count  = \$RecordCount
+                    start_time    = \$startTime
+                }
+                if (\$ErrorMessage) { \$body.error_message = \$ErrorMessage }
+                Invoke-RestMethod -Uri \$logUrl -Method POST -Body \$body -ErrorAction Stop | Out-Null
+                Write-Host "Logged '\$Status' to \$logUrl"
+            } catch {
+                Write-Warning "Log POST failed (non-fatal): \$_"
+            }
+        }
 
-        # Poll until complete
-        \$maxWait = 3600; \$waited = 0
-        do {
-            Start-Sleep -Seconds 10; \$waited += 10
-            \$result = Invoke-Sqlcmd -ServerInstance \$agentServer -TrustServerCertificate -Query @"
+        # Log started
+        Write-AppLog -Status "Started"
+
+        try {
+            # Start the SQL Agent job
+            \$conn = New-Object System.Data.SqlClient.SqlConnection(
+                "Server=\$agentServer;Database=msdb;Integrated Security=True;TrustServerCertificate=True;")
+            \$conn.Open()
+            \$cmd = \$conn.CreateCommand()
+            \$cmd.CommandText = "EXEC dbo.sp_start_job N'\$jobName'"
+            \$cmd.ExecuteNonQuery() | Out-Null
+            Write-Host "SQL Agent job started: \$jobName"
+
+            # Poll until complete
+            \$maxWait = 3600; \$waited = 0
+            \$jobStatus = "Running"
+            do {
+                Start-Sleep -Seconds 10; \$waited += 10
+                \$statusCmd = \$conn.CreateCommand()
+                \$statusCmd.CommandText = @"
 SELECT TOP 1
-    CASE run_status
+    CASE h.run_status
         WHEN 0 THEN 'Failed'
         WHEN 1 THEN 'Succeeded'
         WHEN 2 THEN 'Retry'
         WHEN 3 THEN 'Cancelled'
         WHEN 4 THEN 'Running'
-    END AS status
-FROM msdb.dbo.sysjobhistory h
-JOIN msdb.dbo.sysjobs j ON j.job_id = h.job_id
+        ELSE 'Unknown'
+    END AS job_status
+FROM dbo.sysjobhistory h
+JOIN dbo.sysjobs j ON j.job_id = h.job_id
 WHERE j.name = N'\$jobName' AND h.step_id = 0
 ORDER BY h.instance_id DESC
 "@
-            \$status = \$result.status
-            Write-Host "Job status: \$status"
-        } while (\$status -in @('Running', 'Retry') -and \$waited -lt \$maxWait)
+                \$reader = \$statusCmd.ExecuteReader()
+                if (\$reader.Read()) { \$jobStatus = \$reader["job_status"] }
+                \$reader.Close()
+                Write-Host "Job status: \$jobStatus (\$waited s elapsed)"
+            } while (\$jobStatus -in @('Running', 'Retry', 'Unknown') -and \$waited -lt \$maxWait)
 
-        if (\$status -ne 'Succeeded') { throw "SQL Agent job ended with status: \$status" }
-        Write-Host "SQL Agent job completed successfully"
+            \$conn.Close()
+
+            if (\$jobStatus -eq 'Succeeded') {
+                Write-Host "SQL Agent job completed successfully"
+                Write-AppLog -Status "Success" -RecordCount 1
+            } else {
+                throw "SQL Agent job ended with status: \$jobStatus"
+            }
+
+        } catch {
+            \$errMsg = \$_.Exception.Message
+            Write-Host "SQL Agent job failed: \$errMsg"
+            if (\$conn -and \$conn.State -eq 'Open') { \$conn.Close() }
+            Write-AppLog -Status "Failed" -ErrorMessage \$errMsg
+            throw
+        }
 PS;
         break;
 
@@ -133,6 +224,32 @@ PS;
         Write-Host "Running: \$command"
         Invoke-Expression \$command
         if (\$LASTEXITCODE -ne 0) { throw "Command exited with code \$LASTEXITCODE" }
+PS;
+        break;
+
+    case 'r':
+        $script    = $proc['remote_script'] ?? 'C:\\Scripts\\my_etl.R';
+        $rExe      = $proc['r_exe']         ?? 'Rscript.exe';
+        $innerBlock = <<<PS
+        \$rExe   = "$rExe"
+        \$script = "$script"
+        \$rArgs  = @("\$script")
+        if (\$extraArgs) { \$rArgs += \$extraArgs -split ' ' | Where-Object { \$_ } }
+        & \$rExe @rArgs
+        if (\$LASTEXITCODE -ne 0) { throw "R script exited with code \$LASTEXITCODE" }
+PS;
+        break;
+
+    case 'node':
+        $script  = $proc['remote_script'] ?? 'C:\\Scripts\\my_etl.js';
+        $nodeExe = $proc['node_exe']      ?? 'node.exe';
+        $innerBlock = <<<PS
+        \$nodeExe = "$nodeExe"
+        \$script  = "$script"
+        \$nArgs   = @("\$script")
+        if (\$extraArgs) { \$nArgs += \$extraArgs -split ' ' | Where-Object { \$_ } }
+        & \$nodeExe @nArgs
+        if (\$LASTEXITCODE -ne 0) { throw "Node.js script exited with code \$LASTEXITCODE" }
 PS;
         break;
 

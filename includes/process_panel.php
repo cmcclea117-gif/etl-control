@@ -21,6 +21,13 @@ $isFromDb   = $proc['_from_db'] ?? false;
                 <a href="add_process.php?edit=<?= urlencode($key) ?>"
                    class="info-btn">✎ EDIT</a>
                 <?php endif; ?>
+                <?php if (!empty($proc['remote_server']) || !empty($proc['ssis_server']) || !empty($proc['agent_server'])): ?>
+                <a href="generate_wrapper.php?process=<?= urlencode($key) ?>"
+                   class="info-btn"
+                   title="Download pre-filled Invoke-<?= htmlspecialchars(ucfirst($key)) ?>Remote.ps1 WinRM wrapper"
+                   style="color:var(--teal);border-color:#134e4a">
+                   ↓ WRAPPER</a>
+                <?php endif; ?>
                 <button class="info-btn edit-doc-btn" id="editbtn-<?= $key ?>"
                         onclick="openDocEditor('<?= $key ?>')"
                         title="Edit documentation for this process"

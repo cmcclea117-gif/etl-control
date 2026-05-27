@@ -151,6 +151,8 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
                         <option value="ssis"       <?= ($editing['exec_type'] ?? '') === 'ssis'       ? 'selected' : '' ?>>SSIS Package</option>
                         <option value="sqlagent"   <?= ($editing['exec_type'] ?? '') === 'sqlagent'   ? 'selected' : '' ?>>SQL Agent Job</option>
                         <option value="cmd"        <?= ($editing['exec_type'] ?? '') === 'cmd'        ? 'selected' : '' ?>>Command / Executable</option>
+                        <option value="r"          <?= ($editing['exec_type'] ?? '') === 'r'          ? 'selected' : '' ?>>R Script</option>
+                        <option value="node"       <?= ($editing['exec_type'] ?? '') === 'node'       ? 'selected' : '' ?>>Node.js Script</option>
                     </select>
                 </div>
             </div>
@@ -196,6 +198,56 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
                     <label>Script Path</label>
                     <input type="text" name="py_remote_script" placeholder="C:\Scripts\my_etl.py"
                            value="<?= htmlspecialchars($editing['remote_script'] ?? '') ?>">
+                </div>
+            </div>
+
+            <!-- ── R fields ── -->
+            <div class="section-label exec-fields" id="fields-r" style="display:none">R Configuration</div>
+            <div class="form-grid exec-fields" id="grid-r" style="display:none">
+                <div class="field">
+                    <label>Remote Server</label>
+                    <input type="text" name="r_remote_server" placeholder="your-etl-server"
+                           value="<?= htmlspecialchars($editing['remote_server'] ?? $config['winrm_server'] ?? '') ?>">
+                </div>
+                <div class="field">
+                    <label>Rscript Executable</label>
+                    <input type="text" name="r_exe" placeholder="Rscript.exe"
+                           value="<?= htmlspecialchars($editing['r_exe'] ?? 'Rscript.exe') ?>">
+                </div>
+                <div class="field full">
+                    <label>Script Path</label>
+                    <input type="text" name="r_remote_script" placeholder="C:\Scripts\my_etl.R"
+                           value="<?= htmlspecialchars($editing['remote_script'] ?? '') ?>">
+                </div>
+                <div class="field full">
+                    <label>Local Script Path</label>
+                    <input type="text" name="r_local_script" placeholder="scripts/my_etl.R"
+                           value="<?= htmlspecialchars($editing['local_script'] ?? '') ?>">
+                </div>
+            </div>
+
+            <!-- ── Node fields ── -->
+            <div class="section-label exec-fields" id="fields-node" style="display:none">Node.js Configuration</div>
+            <div class="form-grid exec-fields" id="grid-node" style="display:none">
+                <div class="field">
+                    <label>Remote Server</label>
+                    <input type="text" name="node_remote_server" placeholder="your-etl-server"
+                           value="<?= htmlspecialchars($editing['remote_server'] ?? $config['winrm_server'] ?? '') ?>">
+                </div>
+                <div class="field">
+                    <label>Node Executable</label>
+                    <input type="text" name="node_exe" placeholder="node.exe"
+                           value="<?= htmlspecialchars($editing['node_exe'] ?? 'node.exe') ?>">
+                </div>
+                <div class="field full">
+                    <label>Script Path</label>
+                    <input type="text" name="node_remote_script" placeholder="C:\Scripts\my_etl.js"
+                           value="<?= htmlspecialchars($editing['remote_script'] ?? '') ?>">
+                </div>
+                <div class="field full">
+                    <label>Local Script Path</label>
+                    <input type="text" name="node_local_script" placeholder="scripts/my_etl.js"
+                           value="<?= htmlspecialchars($editing['local_script'] ?? '') ?>">
                 </div>
             </div>
 
@@ -396,7 +448,7 @@ document.getElementById('nameInput').addEventListener('input', function() {
 
 // ── Show/hide exec type fields ────────────────────────────────────────────────
 function switchExecType(type) {
-    const types = ['powershell', 'python', 'ssis', 'sqlagent', 'cmd'];
+    const types = ['powershell', 'python', 'ssis', 'sqlagent', 'cmd', 'r', 'node'];
     types.forEach(t => {
         const label = document.getElementById('fields-' + t);
         const grid  = document.getElementById('grid-' + t);
@@ -417,8 +469,12 @@ function submitForm() {
         .then(r => r.json())
         .then(res => {
             if (res.ok) {
-                alertBox.innerHTML = '<div class="alert success">✓ Process saved. Redirecting...</div>';
-                setTimeout(() => window.location.href = 'index.php', 1000);
+                const key = res.process_key || '';
+                alertBox.innerHTML = '<div class="alert success">✓ Process saved! '
+                    + '<a href="generate_wrapper.php?process=' + key + '" '
+                    + 'style="color:var(--teal);text-decoration:underline">↓ Download WinRM wrapper</a> '
+                    + '(deploy to web server for production use). Redirecting to dashboard...</div>';
+                setTimeout(() => window.location.href = 'index.php', 3000);
             } else {
                 alertBox.innerHTML = '<div class="alert error">✕ ' + (res.error || 'Save failed') + '</div>';
                 window.scrollTo(0, 0);
