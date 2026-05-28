@@ -27,15 +27,17 @@ $execType  = $proc['exec_type'] ?? 'powershell';
 
 // ── Local mode ────────────────────────────────────────────────────────────────
 if (($config['mode'] ?? 'production') === 'local') {
-    // These exec types require a remote server -- no local equivalent
-    $remoteOnlyTypes = ['ssis', 'sqlagent'];
-    if (in_array($execType, $remoteOnlyTypes)) {
-        http_response_code(400);
-        echo json_encode(['error' => "exec_type '$execType' requires a remote server and cannot run in local mode. Switch app.php mode to 'production' to use WinRM execution."]);
-        exit;
+    $localScript = $proc['local_script'] ?? null;
+
+    // Auto-assign built-in local scripts for exec types that have them
+    if (!$localScript) {
+        $builtinScripts = [
+            'ssis'      => __DIR__ . '/scripts/Invoke-SsisLocal.ps1',
+            'sqlagent'  => __DIR__ . '/scripts/Invoke-SqlAgentLocal.ps1',
+        ];
+        $localScript = $builtinScripts[$execType] ?? null;
     }
 
-    $localScript = $proc['local_script'] ?? null;
     if (!$localScript) {
         http_response_code(500);
         echo json_encode(['error' => "No local_script defined for: $processKey. Add a local_script path in config/processes.php."]);
@@ -73,18 +75,40 @@ if (($config['mode'] ?? 'production') === 'local') {
     // Write launcher file
     $tmpDir = sys_get_temp_dir();
 
-    if (in_array($execType, ['python', 'r', 'node'])) {
+    if (in_array($execType, ['python', 'r', 'node', 'ssis', 'sqlagent'])) {
         $exe = match($execType) {
-            'python' => $proc['python_exe'] ?? 'python.exe',
-            'r'      => $proc['r_exe']      ?? 'Rscript.exe',
-            'node'   => $proc['node_exe']   ?? 'node.exe',
+            'python'   => $proc['python_exe'] ?? 'python.exe',
+            'r'        => $proc['r_exe']      ?? 'Rscript.exe',
+            'node'     => $proc['node_exe']   ?? 'node.exe',
+            'ssis',
+            'sqlagent' => 'powershell.exe',
+            default    => 'powershell.exe',
         };
         $launcherPath = $tmpDir . DIRECTORY_SEPARATOR . 'etl_launch_' . $processKey . '.bat';
         $lines = ['@echo off'];
-        $line  = '"' . $exe . '" "' . $localScript . '"';
-        if ($extraArgs) $line .= ' ' . $extraArgs;
-        $line .= ' --log-url "' . $logUrl . '"';
-        $line .= ' --log-process-name "' . str_replace('"', '\"', $logName) . '"';
+        if (in_array($execType, ['ssis', 'sqlagent'])) {
+            // PS scripts use -Parameter syntax
+            $line = 'powershell.exe -NonInteractive -NoProfile -ExecutionPolicy Bypass -File "' . $localScript . '"';
+            if ($extraArgs) $line .= ' ' . $extraArgs;
+            $line .= ' -LogUrl "' . $logUrl . '"';
+            $line .= ' -LogProcessName "' . str_replace('"', '\"', $logName) . '"';
+            // Pass connection params from process config
+            if ($execType === 'ssis') {
+                $line .= ' -SsisServer "' . ($proc['ssis_server'] ?? '') . '"';
+                $line .= ' -SsisCatalog "' . ($proc['ssis_catalog'] ?? 'SSISDB') . '"';
+                $line .= ' -SsisFolder "' . ($proc['ssis_folder'] ?? '') . '"';
+                $line .= ' -SsisProject "' . ($proc['ssis_project'] ?? '') . '"';
+                $line .= ' -SsisPackage "' . ($proc['ssis_package'] ?? '') . '"';
+            } elseif ($execType === 'sqlagent') {
+                $line .= ' -AgentServer "' . ($proc['agent_server'] ?? '') . '"';
+                $line .= ' -AgentJob "' . str_replace('"', '\"', ($proc['agent_job'] ?? '')) . '"';
+            }
+        } else {
+            $line  = '"' . $exe . '" "' . $localScript . '"';
+            if ($extraArgs) $line .= ' ' . $extraArgs;
+            $line .= ' --log-url "' . $logUrl . '"';
+            $line .= ' --log-process-name "' . str_replace('"', '\"', $logName) . '"';
+        }
         $lines[] = $line;
         file_put_contents($launcherPath, implode("\r\n", $lines));
 
