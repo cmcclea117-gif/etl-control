@@ -24,9 +24,19 @@ $isFromDb   = $proc['_from_db'] ?? false;
                 <?php if (!empty($proc['remote_server']) || !empty($proc['ssis_server']) || !empty($proc['agent_server'])): ?>
                 <a href="generate_wrapper.php?process=<?= urlencode($key) ?>"
                    class="info-btn"
-                   title="Download pre-filled Invoke-<?= htmlspecialchars(ucfirst($key)) ?>Remote.ps1 WinRM wrapper"
+                   title="Download pre-filled WinRM wrapper for production deployment"
                    style="color:var(--teal);border-color:#134e4a">
                    ↓ WRAPPER</a>
+                <?php endif; ?>
+                <?php
+                $hasSrc = !empty($proc['source_type']) && $proc['source_type'] !== 'none';
+                $hasDst = !empty($proc['dest_type'])   && $proc['dest_type']   !== 'none';
+                if ($hasSrc || $hasDst): ?>
+                <a href="generate_script.php?process=<?= urlencode($key) ?>&download=1"
+                   class="info-btn"
+                   title="Download generated ETL script for this source/destination"
+                   style="color:var(--purple);border-color:#4c1d95">
+                   ↓ SCRIPT</a>
                 <?php endif; ?>
                 <button class="info-btn edit-doc-btn" id="editbtn-<?= $key ?>"
                         onclick="openDocEditor('<?= $key ?>')"

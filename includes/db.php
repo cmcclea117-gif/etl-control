@@ -112,9 +112,58 @@ function _ensureSchema(PDO $pdo): void {
             doc_duration       TEXT,
             doc_when           TEXT,
             doc_warnings       TEXT,
-            created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+
+            -- Source connection
+            source_type        TEXT,
+            source_host        TEXT,
+            source_port        TEXT,
+            source_database    TEXT,
+            source_username    TEXT,
+            source_schema      TEXT,
+            source_query       TEXT,
+
+            -- Destination connection
+            dest_type          TEXT,
+            dest_host          TEXT,
+            dest_port          TEXT,
+            dest_database      TEXT,
+            dest_username      TEXT,
+            dest_schema        TEXT,
+            dest_table         TEXT,
+
+            -- Generated script path (auto-set by generate_script.php)
+            generated_script   TEXT
         );
+
+        -- Add new columns to existing ETL_Processes tables (safe on upgrade)
+        CREATE TABLE IF NOT EXISTS _migration_check (id INTEGER PRIMARY KEY);
     ");
+
+    // Run safe migrations for existing databases
+    $cols = array_column($pdo->query('PRAGMA table_info(ETL_Processes)')->fetchAll(), 'name');
+    $newCols = [
+        'source_type'     => 'TEXT',
+        'source_host'     => 'TEXT',
+        'source_port'     => 'TEXT',
+        'source_database' => 'TEXT',
+        'source_username' => 'TEXT',
+        'source_schema'   => 'TEXT',
+        'source_query'    => 'TEXT',
+        'dest_type'       => 'TEXT',
+        'dest_host'       => 'TEXT',
+        'dest_port'       => 'TEXT',
+        'dest_database'   => 'TEXT',
+        'dest_username'   => 'TEXT',
+        'dest_schema'     => 'TEXT',
+        'dest_table'      => 'TEXT',
+        'generated_script'=> 'TEXT',
+    ];
+    foreach ($newCols as $col => $type) {
+        if (!in_array($col, $cols)) {
+            $pdo->exec("ALTER TABLE ETL_Processes ADD COLUMN $col $type");
+        }
+    }
 
     // Seed Hello World docs if not already present
     $exists = $pdo->query(

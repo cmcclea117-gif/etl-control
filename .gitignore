@@ -1,6 +1,5 @@
 # ── Secrets — NEVER commit these ─────────────────────────────────────────────
 config/app.php
-config/credentials.php
 web.config
 
 # ── PowerShell secrets ────────────────────────────────────────────────────────
@@ -28,3 +27,9 @@ desktop.ini
 
 # SQLite database (auto-created on first run)
 data/*.db
+
+# Generated scripts and credentials
+scripts/generated/
+credentials/*.ini
+!credentials/*.example.ini
+!credentials/README.md

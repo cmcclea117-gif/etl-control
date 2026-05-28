@@ -158,6 +158,78 @@ httr::POST(log_url, body = list(process_name='My ETL', status='Success', record_
 
 ---
 
+## Source & Destination Connections
+
+When adding a process, you can configure source and destination database connections. The app will automatically generate an ETL script tailored to your selections.
+
+### Supported Types
+
+| Type | Source | Destination | Notes |
+|------|--------|-------------|-------|
+| SQL Server | ✓ | ✓ | Windows auth or SQL auth |
+| MySQL | ✓ | ✓ | Requires MySql.Data.dll (PS) or mysql-connector-python |
+| PostgreSQL | ✓ | ✓ | Requires Npgsql (PS) or psycopg2 (Python) |
+| Snowflake | ✓ | ✓ | Requires snowflake-connector-python |
+| Oracle | ✓ | ✓ | Requires cx_Oracle |
+| MongoDB | ✓ | ✓ | Requires pymongo |
+| CSV / Flat File | ✓ | ✓ | No driver needed |
+| REST API | ✓ | — | HTTP client built into all languages |
+
+### How It Works
+
+1. Add a process via **+ Add Process**
+2. Fill in Source Type + connection details
+3. Fill in Destination Type + connection details
+4. Click **+ Add Process** — the script is auto-generated and saved to `scripts/generated/`
+5. A `credentials/creds_<key>.ini` file is created — fill in passwords there
+6. Click **▶ Run** — the generated script runs automatically
+
+### Credentials
+
+Passwords are never stored in SQLite. Each process gets a credentials file:
+
+```
+credentials/
+  creds_myprocess.example.ini   ← template (committed)
+  creds_myprocess.ini           ← actual passwords (gitignored)
+```
+
+Format:
+```ini
+[source]
+host     = your-source-host
+port     = 3306
+database = your_database
+username = your_user
+password = YourPassword
+
+[destination]
+host     = your-dest-host
+port     = 5432
+database = your_dest_database
+username = your_dest_user
+password = YourDestPassword
+```
+
+### Generated Scripts
+
+Scripts are saved to `scripts/generated/` (gitignored) with full connection boilerplate:
+- `Invoke-<key>ETL.ps1` for PowerShell processes
+- `Invoke-<key>ETL.py` for Python processes
+- `Invoke-<key>ETL.R` for R processes
+- `Invoke-<key>ETL.js` for Node.js processes
+
+Download any generated script via the **↓ SCRIPT** button on the process panel.
+
+Each generated script includes:
+- Credentials file reader
+- Source connection block
+- Extract stub with your query
+- Destination connection block
+- Full HTTP logging to `log.php`
+
+---
+
 ## PBIX Scanner
 
 Scans a SharePoint document library for Power BI reports, extracts SQL connection info from TMDL, and populates the Dependency Chain tab.

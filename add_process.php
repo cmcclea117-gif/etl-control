@@ -82,6 +82,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .alert{padding:12px 16px;border:1px solid;font-family:var(--mono);font-size:12px;margin-bottom:20px}
 .alert.success{border-color:var(--green-dim);background:rgba(34,197,94,.06);color:var(--green)}
 .alert.error{border-color:var(--red-dim);background:rgba(239,68,68,.06);color:var(--red)}
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -374,6 +375,111 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
                 </div>
             </div>
 
+            <!-- ── Source / Destination ── -->
+            <div class="section-label">Source Connection <span style="color:var(--text-dim);font-size:9px;letter-spacing:.1em">WHERE DOES YOUR DATA COME FROM?</span></div>
+            <div class="form-grid">
+                <div class="field">
+                    <label>Source Type</label>
+                    <select name="source_type" id="srcTypeSelect" onchange="toggleCredFields()">
+                        <option value="none">None / Not applicable</option>
+                        <option value="sqlserver"  <?= ($editing['source_type']??'')==='sqlserver' ?'selected':'' ?>>SQL Server</option>
+                        <option value="mysql"      <?= ($editing['source_type']??'')==='mysql'     ?'selected':'' ?>>MySQL</option>
+                        <option value="postgres"   <?= ($editing['source_type']??'')==='postgres'  ?'selected':'' ?>>PostgreSQL</option>
+                        <option value="snowflake"  <?= ($editing['source_type']??'')==='snowflake' ?'selected':'' ?>>Snowflake</option>
+                        <option value="oracle"     <?= ($editing['source_type']??'')==='oracle'    ?'selected':'' ?>>Oracle</option>
+                        <option value="mongodb"    <?= ($editing['source_type']??'')==='mongodb'   ?'selected':'' ?>>MongoDB</option>
+                        <option value="csv"        <?= ($editing['source_type']??'')==='csv'       ?'selected':'' ?>>CSV / Flat File</option>
+                        <option value="api"        <?= ($editing['source_type']??'')==='api'       ?'selected':'' ?>>REST API</option>
+                    </select>
+                </div>
+            </div>
+            <div id="srcConnFields" style="display:none">
+            <div class="form-grid">
+                <div class="field">
+                    <label>Source Host</label>
+                    <input type="text" name="source_host" placeholder="your-source-host"
+                           value="<?= htmlspecialchars($editing['source_host'] ?? '') ?>">
+                </div>
+                <div class="field">
+                    <label>Source Port</label>
+                    <input type="text" name="source_port" placeholder="3306"
+                           value="<?= htmlspecialchars($editing['source_port'] ?? '') ?>">
+                </div>
+                <div class="field">
+                    <label>Source Database</label>
+                    <input type="text" name="source_database" placeholder="my_database"
+                           value="<?= htmlspecialchars($editing['source_database'] ?? '') ?>">
+                </div>
+                <div class="field">
+                    <label>Source Username</label>
+                    <input type="text" name="source_username" placeholder="db_user"
+                           value="<?= htmlspecialchars($editing['source_username'] ?? '') ?>">
+                    <span class="hint">Password stored in credentials/creds_<?= htmlspecialchars($key ?? '{key}') ?>.ini (gitignored)</span>
+                </div>
+                <div class="field">
+                    <label>Source Schema</label>
+                    <input type="text" name="source_schema" placeholder="public"
+                           value="<?= htmlspecialchars($editing['source_schema'] ?? '') ?>">
+                </div>
+                <div class="field full">
+                    <label>Source Query / Table</label>
+                    <textarea name="source_query" rows="3"
+                              placeholder="SELECT * FROM my_table WHERE active = 1"><?= htmlspecialchars($editing['source_query'] ?? '') ?></textarea>
+                </div>
+            </div>
+            </div>
+
+            <div class="section-label">Destination Connection <span style="color:var(--text-dim);font-size:9px;letter-spacing:.1em">WHERE DOES YOUR DATA GO?</span></div>
+            <div class="form-grid">
+                <div class="field">
+                    <label>Destination Type</label>
+                    <select name="dest_type" id="dstTypeSelect" onchange="toggleCredFields()">
+                        <option value="none">None / Not applicable</option>
+                        <option value="sqlserver"  <?= ($editing['dest_type']??'')==='sqlserver' ?'selected':'' ?>>SQL Server</option>
+                        <option value="mysql"      <?= ($editing['dest_type']??'')==='mysql'     ?'selected':'' ?>>MySQL</option>
+                        <option value="postgres"   <?= ($editing['dest_type']??'')==='postgres'  ?'selected':'' ?>>PostgreSQL</option>
+                        <option value="snowflake"  <?= ($editing['dest_type']??'')==='snowflake' ?'selected':'' ?>>Snowflake</option>
+                        <option value="oracle"     <?= ($editing['dest_type']??'')==='oracle'    ?'selected':'' ?>>Oracle</option>
+                        <option value="mongodb"    <?= ($editing['dest_type']??'')==='mongodb'   ?'selected':'' ?>>MongoDB</option>
+                        <option value="csv"        <?= ($editing['dest_type']??'')==='csv'       ?'selected':'' ?>>CSV / Flat File</option>
+                    </select>
+                </div>
+            </div>
+            <div id="dstConnFields" style="display:none">
+            <div class="form-grid">
+                <div class="field">
+                    <label>Destination Host</label>
+                    <input type="text" name="dest_host" placeholder="your-dest-host"
+                           value="<?= htmlspecialchars($editing['dest_host'] ?? '') ?>">
+                </div>
+                <div class="field">
+                    <label>Destination Port</label>
+                    <input type="text" name="dest_port" placeholder="5432"
+                           value="<?= htmlspecialchars($editing['dest_port'] ?? '') ?>">
+                </div>
+                <div class="field">
+                    <label>Destination Database</label>
+                    <input type="text" name="dest_database" placeholder="my_dest_database"
+                           value="<?= htmlspecialchars($editing['dest_database'] ?? '') ?>">
+                </div>
+                <div class="field">
+                    <label>Destination Username</label>
+                    <input type="text" name="dest_username" placeholder="db_user"
+                           value="<?= htmlspecialchars($editing['dest_username'] ?? '') ?>">
+                </div>
+                <div class="field">
+                    <label>Destination Schema</label>
+                    <input type="text" name="dest_schema" placeholder="dbo"
+                           value="<?= htmlspecialchars($editing['dest_schema'] ?? '') ?>">
+                </div>
+                <div class="field">
+                    <label>Destination Table</label>
+                    <input type="text" name="dest_table" placeholder="my_staging_table"
+                           value="<?= htmlspecialchars($editing['dest_table'] ?? '') ?>">
+                </div>
+            </div>
+            </div>
+
             <!-- ── Documentation ── -->
             <div class="section-label">Documentation (shown in ⓘ Info panel)</div>
             <div class="form-grid full">
@@ -419,7 +525,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
             </div>
 
             <div class="btn-row">
-                <button type="button" class="btn btn-primary" onclick="submitForm()">
+                <button type="button" class="btn btn-primary" id="saveBtn" onclick="submitForm()">
                     <?= $editing ? '✓ Save Changes' : '+ Add Process' ?>
                 </button>
                 <a href="index.php" class="btn btn-secondary">Cancel</a>
@@ -435,6 +541,22 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 </div>
 
 <script>
+// ── Toggle source/dest connection fields ─────────────────────────────────────
+function toggleCredFields() {
+    const srcType = document.getElementById('srcTypeSelect').value;
+    const dstType = document.getElementById('dstTypeSelect').value;
+    document.getElementById('srcConnFields').style.display = srcType !== 'none' ? '' : 'none';
+    document.getElementById('dstConnFields').style.display = dstType !== 'none' ? '' : 'none';
+
+    // Auto-fill default ports
+    const ports = { sqlserver:'1433', mysql:'3306', postgres:'5432', snowflake:'443', oracle:'1521', mongodb:'27017' };
+    const srcPort = document.querySelector('[name=source_port]');
+    const dstPort = document.querySelector('[name=dest_port]');
+    if (srcPort && !srcPort.value && ports[srcType]) srcPort.value = ports[srcType];
+    if (dstPort && !dstPort.value && ports[dstType]) dstPort.value = ports[dstType];
+}
+toggleCredFields(); // run on load
+
 // ── Auto-fill key and task name from process name ─────────────────────────────
 document.getElementById('nameInput').addEventListener('input', function() {
     <?php if (!$editing): ?>
@@ -461,28 +583,40 @@ switchExecType(document.getElementById('execTypeSelect').value);
 
 // ── Submit ────────────────────────────────────────────────────────────────────
 function submitForm() {
-    const form = document.getElementById('processForm');
-    const data = new FormData(form);
+    const form     = document.getElementById('processForm');
+    const data     = new FormData(form);
     const alertBox = document.getElementById('alertBox');
+    const saveBtn  = document.getElementById('saveBtn');
+
+    // Show loading state on button + alert at top
+    saveBtn.disabled    = true;
+    saveBtn.innerHTML   = '<span style="display:inline-block;animation:spin 1s linear infinite;margin-right:6px">⟳</span> Saving...';
+    alertBox.innerHTML  = '<div class="alert" style="border-color:var(--border);color:var(--text-dim)">⟳ Saving process and generating script — this may take a few seconds...</div>';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 
     fetch('save_process.php', { method: 'POST', body: data, credentials: 'include' })
         .then(r => r.json())
         .then(res => {
+            saveBtn.disabled  = false;
+            saveBtn.innerHTML = '<?= $editing ? "✓ Save Changes" : "+ Add Process" ?>';
             if (res.ok) {
-                const key = res.process_key || '';
-                alertBox.innerHTML = '<div class="alert success">✓ Process saved! '
-                    + '<a href="generate_wrapper.php?process=' + key + '" '
-                    + 'style="color:var(--teal);text-decoration:underline">↓ Download WinRM wrapper</a> '
-                    + '(deploy to web server for production use). Redirecting to dashboard...</div>';
-                setTimeout(() => window.location.href = 'index.php', 3000);
+                const key    = res.process_key || '';
+                const hasCon = res.has_connection;
+                let msg = '✓ Process saved!';
+                if (hasCon) {
+                    msg += ' Script generated — fill in <strong>credentials/creds_' + key + '.ini</strong> with your passwords before running. ';
+                    msg += '<a href="generate_script.php?process=' + key + '&download=1" style="color:var(--teal);text-decoration:underline">↓ Download script</a>';
+                }
+                msg += ' <a href="index.php" style="color:var(--green);text-decoration:underline;margin-left:8px">← Back to Dashboard</a>';
+                alertBox.innerHTML = '<div class="alert success">' + msg + '</div>';
             } else {
                 alertBox.innerHTML = '<div class="alert error">✕ ' + (res.error || 'Save failed') + '</div>';
-                window.scrollTo(0, 0);
             }
         })
         .catch(err => {
-            alertBox.innerHTML = '<div class="alert error">✕ Request failed: ' + err + '</div>';
-            window.scrollTo(0, 0);
+            saveBtn.disabled  = false;
+            saveBtn.innerHTML = '<?= $editing ? "✓ Save Changes" : "+ Add Process" ?>';
+            alertBox.innerHTML  = '<div class="alert error">✕ Request failed: ' + err + '</div>';
         });
 }
 

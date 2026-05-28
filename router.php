@@ -26,6 +26,8 @@ $routes = [
     '/seed_viewmap.php'    => '/seed_viewmap.php',
     '/add_process.php'     => '/add_process.php',
     '/save_process.php'    => '/save_process.php',
+    '/ingest_pbix.php'     => '/ingest_pbix.php',
+    '/generate_script.php'  => '/generate_script.php',
 ];
 
 $target = $routes[$uri] ?? null;

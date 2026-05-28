@@ -27,7 +27,8 @@ $execType  = $proc['exec_type'] ?? 'powershell';
 
 // ── Local mode ────────────────────────────────────────────────────────────────
 if (($config['mode'] ?? 'production') === 'local') {
-    $localScript = $proc['local_script'] ?? null;
+    // Prefer generated script if it exists
+    $localScript = $proc['generated_script'] ?? $proc['local_script'] ?? null;
 
     // Auto-assign built-in local scripts for exec types that have them
     if (!$localScript) {
