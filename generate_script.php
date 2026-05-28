@@ -59,6 +59,27 @@ $credsContent = generateCredsTemplate($proc);
 file_put_contents($credsExample, $credsContent);
 if (!file_exists($credsPath)) {
     file_put_contents($credsPath, $credsContent);
+} else {
+    $existing = parse_ini_file($credsPath, true);
+    if ($existing === false) {
+        // parse failed — leave the file alone
+    } else {
+        $new = parse_ini_string($credsContent, true);
+        foreach ($new as $section => $values) {
+            foreach ($values as $key => $value) {
+                if ($key !== 'password' && isset($existing[$section])) {
+                    $existing[$section][$key] = $value;
+                }
+            }
+        }
+        $out = '';
+        foreach ($existing as $section => $values) {
+            $out .= "[$section]\n";
+            foreach ($values as $k => $v) $out .= "$k = $v\n";
+            $out .= "\n";
+        }
+        file_put_contents($credsPath, $out);
+    }
 }
 
 // ── Generate script ───────────────────────────────────────────────────────────
@@ -112,6 +133,10 @@ function generateCredsTemplate(array $proc): string {
         $out .= "host     = " . ($proc['source_host']     ?? 'your-source-host') . "\n";
         $out .= "port     = " . ($proc['source_port']     ?? $defaultPort) . "\n";
         $out .= "database = " . ($proc['source_database'] ?? 'your_database') . "\n";
+        if ($srcType === 'snowflake') {
+            $out .= "schema   = " . ($proc['source_schema'] ?? 'PUBLIC') . "\n";
+            $out .= "warehouse = dev\n";
+        }
         $out .= "username = " . ($proc['source_username'] ?? 'your_user') . "\n";
         $out .= "password = YourSourcePassword\n\n";
     }
@@ -123,6 +148,10 @@ function generateCredsTemplate(array $proc): string {
         $out .= "host     = " . ($proc['dest_host']     ?? 'your-dest-host') . "\n";
         $out .= "port     = " . ($proc['dest_port']     ?? $defaultPort) . "\n";
         $out .= "database = " . ($proc['dest_database'] ?? 'your_dest_database') . "\n";
+        if ($dstType === 'snowflake') {
+            $out .= "schema   = " . ($proc['dest_schema'] ?? 'PUBLIC') . "\n";
+            $out .= "warehouse = dev\n";
+        }
         $out .= "username = " . ($proc['dest_username'] ?? 'your_dest_user') . "\n";
         $out .= "password = YourDestPassword\n";
     }
@@ -202,7 +231,7 @@ function Read-Credentials {
     \$inSection = \$false
     foreach (\$line in (Get-Content \$credsPath)) {
         if (\$line -match "^\[(\w+)\]") { \$inSection = (\$matches[1] -eq \$Section) }
-        elseif (\$inSection -and \$line -match "^(\w+)\s*=\s*(.+)") { \$creds[\$matches[1].Trim()] = \$matches[2].Trim() }
+        elseif (\$inSection -and \$line -match "^(\w+)\s*=\s*(.*)") { \$creds[\$matches[1].Trim()] = \$matches[2].Trim() }
     }
     return \$creds
 }
@@ -269,10 +298,21 @@ PS,
     # Or use Npgsql: place Npgsql.dll in scripts/lib/ and uncomment the LoadFile lines
     # \$npgsqlDll = "\$PSScriptRoot\..\..\lib\Npgsql.dll"
     # [Reflection.Assembly]::LoadFile(\$npgsqlDll) | Out-Null
-    \$srcConnStr = "Driver={PostgreSQL Unicode};Server=\$srcHost;Port=\$(\$srcCreds['port']);Database=\$(\$srcCreds['database']);Uid=\$(\$srcCreds['username']);Pwd=\$(\$srcCreds['password']);"
+    \$srcPwd     = if (\$srcCreds['password']) { "Pwd=\$(\$srcCreds['password']);" } else { "" }
+    \$srcConnStr = "Driver={PostgreSQL ODBC Driver(UNICODE)};Server=\$srcHost;Port=\$(\$srcCreds['port']);Database=\$(\$srcCreds['database']);Uid=\$(\$srcCreds['username']);\$srcPwd"
     \$srcConn   = New-Object System.Data.Odbc.OdbcConnection(\$srcConnStr)
     \$srcConn.Open()
     Write-Log "Source PostgreSQL connected via ODBC." "SUCCESS"
+PS,
+'snowflake' => <<<PS
+    \$srcCreds   = Read-Credentials -Section "source"
+    # Requires Snowflake ODBC driver -- https://docs.snowflake.com/en/user-guide/odbc
+    \$srcWarehouse = if (\$srcCreds['warehouse']) { "Warehouse=\$(\$srcCreds['warehouse']);" } else { "" }
+    \$srcSchema    = if (\$srcCreds['schema'])    { "Schema=\$(\$srcCreds['schema']);"       } else { "" }
+    \$srcConnStr   = "Driver={SnowflakeDSIIDriver};Server=\$(\$srcCreds['host']);Database=\$(\$srcCreds['database']);\$srcWarehouse\$srcSchema;Uid=\$(\$srcCreds['username']);Pwd=\$(\$srcCreds['password']);"
+    \$srcConn    = New-Object System.Data.Odbc.OdbcConnection(\$srcConnStr)
+    \$srcConn.Open()
+    Write-Log "Source Snowflake connected via ODBC." "SUCCESS"
 PS,
         'csv' => <<<PS
     \$srcFile = "{$proc['source_query']}"
@@ -295,7 +335,7 @@ function powershellExtractBlock(string $type): string {
     \$recordCount        = \$srcData.Rows.Count
     Write-Log "Extracted \$recordCount rows from source." "SUCCESS"
 PS,
-        'mysql', 'postgres' => <<<PS
+        'mysql', 'postgres', 'snowflake' => <<<PS
     \$srcCmd             = \$srcConn.CreateCommand()
     \$srcCmd.CommandText = \$query
     \$adapter            = New-Object System.Data.Odbc.OdbcDataAdapter(\$srcCmd)
@@ -333,24 +373,98 @@ PS,
     \$dstCreds   = Read-Credentials -Section "destination"
     \$dstHost    = if (\$dstCreds['host']) { \$dstCreds['host'] } else { "{$host}" }
     \$dstConnStr = "Driver={MySQL ODBC 8.0 Unicode Driver};Server=\$dstHost;Port=\$(\$dstCreds['port']);Database=\$(\$dstCreds['database']);User=\$(\$dstCreds['username']);Password=\$(\$dstCreds['password']);Option=3;"
-    \$dstConn   = New-Object System.Data.Odbc.OdbcConnection(\$dstConnStr)
+    \$dstConn    = New-Object System.Data.Odbc.OdbcConnection(\$dstConnStr)
     \$dstConn.Open()
-    # TODO: insert rows into {$dstTable} via OdbcCommand
     Write-Log "Destination MySQL connected via ODBC." "SUCCESS"
+    \$cols      = \$srcData.Columns | ForEach-Object { '`' + \$_.ColumnName + '`' }
+    \$colList   = \$cols -join ", "
+    \$paramList = (1..\$srcData.Columns.Count | ForEach-Object { "?" }) -join ", "
+    \$insertSql = "INSERT INTO {$dstTable} (\$colList) VALUES (\$paramList)"
+    \$dstTx     = \$dstConn.BeginTransaction()
+    try {
+        foreach (\$row in \$srcData.Rows) {
+            \$dstCmd             = \$dstConn.CreateCommand()
+            \$dstCmd.Transaction = \$dstTx
+            \$dstCmd.CommandText = \$insertSql
+            foreach (\$col in \$srcData.Columns) {
+                \$val = if (\$row[\$col.ColumnName] -is [DBNull]) { [DBNull]::Value } else { [string]\$row[\$col.ColumnName] }
+                \$dstCmd.Parameters.AddWithValue(\$col.ColumnName, \$val) | Out-Null
+            }
+            \$dstCmd.ExecuteNonQuery() | Out-Null
+        }
+        \$dstTx.Commit()
+    } catch {
+        \$dstTx.Rollback()
+        throw
+    }
+    Write-Log "Loaded \$recordCount rows to {$dstTable}." "SUCCESS"
 PS,
         'postgres' => <<<PS
     \$dstCreds   = Read-Credentials -Section "destination"
     \$dstHost    = if (\$dstCreds['host']) { \$dstCreds['host'] } else { "{$host}" }
-    \$dstConnStr = "Driver={PostgreSQL Unicode};Server=\$dstHost;Port=\$(\$dstCreds['port']);Database=\$(\$dstCreds['database']);Uid=\$(\$dstCreds['username']);Pwd=\$(\$dstCreds['password']);"
-    \$dstConn   = New-Object System.Data.Odbc.OdbcConnection(\$dstConnStr)
+    \$dstPwd     = if (\$dstCreds['password']) { "Pwd=\$(\$dstCreds['password']);" } else { "" }
+    \$dstConnStr = "Driver={PostgreSQL ODBC Driver(UNICODE)};Server=\$dstHost;Port=\$(\$dstCreds['port']);Database=\$(\$dstCreds['database']);Uid=\$(\$dstCreds['username']);\$dstPwd"
+    \$dstConn    = New-Object System.Data.Odbc.OdbcConnection(\$dstConnStr)
     \$dstConn.Open()
-    # TODO: insert rows into {$dstTable}
     Write-Log "Destination PostgreSQL connected." "SUCCESS"
+    \$cols      = \$srcData.Columns | ForEach-Object { \$_.ColumnName }
+    \$colList   = \$cols -join ", "
+    \$paramList = (1..\$srcData.Columns.Count | ForEach-Object { "?" }) -join ", "
+    \$insertSql = "INSERT INTO {$dstTable} (\$colList) VALUES (\$paramList)"
+    \$dstTx     = \$dstConn.BeginTransaction()
+    try {
+        foreach (\$row in \$srcData.Rows) {
+            \$dstCmd             = \$dstConn.CreateCommand()
+            \$dstCmd.Transaction = \$dstTx
+            \$dstCmd.CommandText = \$insertSql
+            foreach (\$col in \$srcData.Columns) {
+                \$val = if (\$row[\$col.ColumnName] -is [DBNull]) { [DBNull]::Value } else { [string]\$row[\$col.ColumnName] }
+                \$dstCmd.Parameters.AddWithValue(\$col.ColumnName, \$val) | Out-Null
+            }
+            \$dstCmd.ExecuteNonQuery() | Out-Null
+        }
+        \$dstTx.Commit()
+    } catch {
+        \$dstTx.Rollback()
+        throw
+    }
+    Write-Log "Loaded \$recordCount rows to {$dstTable}." "SUCCESS"
+PS,
+'snowflake' => <<<PS
+    \$dstCreds   = Read-Credentials -Section "destination"
+    \$dstWarehouse = if (\$dstCreds['warehouse']) { "Warehouse=\$(\$dstCreds['warehouse']);" } else { "" }
+    \$dstSchema    = if (\$dstCreds['schema'])    { "Schema=\$(\$dstCreds['schema']);"       } else { "" }
+    \$dstConnStr = "Driver={SnowflakeDSIIDriver};Server=\$(\$dstCreds['host']);Database=\$(\$dstCreds['database']);\$(\$dstWarehouse)\$(\$dstSchema)Uid=\$(\$dstCreds['username']);Pwd=\$(\$dstCreds['password']);"
+    \$dstConn    = New-Object System.Data.Odbc.OdbcConnection(\$dstConnStr)
+    \$dstConn.Open()
+    Write-Log "Destination Snowflake connected via ODBC." "SUCCESS"
+    \$cols      = \$srcData.Columns | ForEach-Object { \$_.ColumnName }
+    \$colList   = \$cols -join ", "
+    \$paramList = (1..\$srcData.Columns.Count | ForEach-Object { "?" }) -join ", "
+    \$insertSql = "INSERT INTO {$dstTable} (\$colList) VALUES (\$paramList)"
+    \$dstTx     = \$dstConn.BeginTransaction()
+    try {
+        foreach (\$row in \$srcData.Rows) {
+            \$dstCmd             = \$dstConn.CreateCommand()
+            \$dstCmd.Transaction = \$dstTx
+            \$dstCmd.CommandText = \$insertSql
+            foreach (\$col in \$srcData.Columns) {
+                \$val = if (\$row[\$col.ColumnName] -is [DBNull]) { [DBNull]::Value } else { [string]\$row[\$col.ColumnName] }
+                \$dstCmd.Parameters.AddWithValue(\$col.ColumnName, \$val) | Out-Null
+            }
+            \$dstCmd.ExecuteNonQuery() | Out-Null
+        }
+        \$dstTx.Commit()
+    } catch {
+        \$dstTx.Rollback()
+        throw
+    }
+    Write-Log "Loaded \$recordCount rows to {$dstTable}." "SUCCESS"
 PS,
         'csv' => <<<PS
     \$outPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "{$dstTable}_\$(Get-Date -Format 'yyyyMMdd_HHmmss').csv")
-    # TODO: \$srcData | Export-Csv \$outPath -NoTypeInformation
-    Write-Log "Output CSV: \$outPath" "SUCCESS"
+    \$srcData | Export-Csv \$outPath -NoTypeInformation
+    Write-Log "Exported \$recordCount rows to \$outPath." "SUCCESS"
 PS,
         default => "    # No destination configured",
     };
